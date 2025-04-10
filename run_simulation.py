@@ -29,7 +29,7 @@ def main():
         temp_analyzer.create_custom_layout(layout_file)
         args.custom_layout = layout_file
 
-    # Create simulator with default exit configuration
+    # Create simulator with default exit configuration and obstacles
     simulator = CrowdFlowSimulator(
         num_agents=args.num_agents,
         arena_width=args.arena_width,
@@ -40,6 +40,39 @@ def main():
                 {
                     "position": [args.arena_width, args.arena_height/2],
                     "width": 3.0
+                }
+            ],
+            "obstacles": [
+                # Add some default obstacles
+                {
+                    "position": [args.arena_width/3, args.arena_height/2],
+                    "width": 2.0,
+                    "height": 10.0
+                },
+                {
+                    "position": [2*args.arena_width/3, args.arena_height/2],
+                    "width": 2.0,
+                    "height": 10.0
+                },
+                # Add some columns
+                {
+                    "position": [args.arena_width/4, args.arena_height/4],
+                    "width": 1.0,
+                    "height": 1.0
+                },
+                {
+                    "position": [3*args.arena_width/4, 3*args.arena_height/4],
+                    "width": 1.0,
+                    "height": 1.0
+                }
+            ],
+            "walls": [
+                # Add internal walls
+                {
+                    "position": [args.arena_width/2, args.arena_height*0.8],
+                    "width": args.arena_width*0.3,
+                    "height": 1.0,
+                    "is_wall": True
                 }
             ]
         }

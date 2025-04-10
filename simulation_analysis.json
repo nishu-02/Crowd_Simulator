@@ -1,3 +1,40 @@
 {
     "evacuation_efficiency": {
-        "initial_agents": 
+        "initial_agents": 100,
+        "evacuated_agents": 4,
+        "evacuation_percentage": 4.0,
+        "simulation_steps": 75,
+        "avg_evacuation_rate": 0.05333333333333334,
+        "peak_evacuation_rate": 1,
+        "half_evacuation_time": null,
+        "bottleneck_percentage": 0.0
+    },
+    "emergent_behaviors": {
+        "bottlenecks": {
+            "average": 0.0,
+            "frequency": 0.0,
+            "peak": 0
+        },
+        "lanes": {
+            "average": 5.626666666666667,
+            "frequency": 1.0,
+            "peak": 7
+        },
+        "clusters": {
+            "average": 3.6533333333333333,
+            "frequency": 1.0,
+            "peak": 9
+        },
+        "interpretation": [
+            "No significant bottlenecks were observed",
+            "Strong lane formation observed with an average of 5.6 lanes",
+            "Significant clustering behavior with an average of 3.7 clusters"
+        ]
+    },
+    "simulation_parameters": {
+        "num_agents": 100,
+        "arena_width": 50.0,
+        "arena_height": 50.0,
+        "time_steps": 75
+    }
+}

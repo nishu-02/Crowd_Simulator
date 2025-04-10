@@ -79,6 +79,9 @@ class CrowdSimulationGUI:
         
         # Add visualization controls
         self.setup_visualization_controls()
+        
+        # Add obstacle visualization settings
+        self.show_obstacles = True
     
     def _generate_agent_colors(self):
         """Generate consistent colors for agents"""
@@ -136,6 +139,16 @@ class CrowdSimulationGUI:
         ax_export = self.fig.add_axes([0.85, 0.15, 0.1, 0.04])
         self.btn_export = Button(ax_export, 'Export Analysis')
         self.btn_export.on_clicked(self.export_analysis)
+        
+        # Add obstacle controls
+        ax_obstacles = self.fig.add_axes([0.85, 0.35, 0.1, 0.1])
+        self.check_obstacles = CheckButtons(ax_obstacles, ['Show Obstacles'], [True])
+        self.check_obstacles.on_clicked(self.toggle_obstacles)
+
+        # Add obstacle editor button
+        ax_edit = self.fig.add_axes([0.85, 0.3, 0.1, 0.04])
+        self.btn_edit = Button(ax_edit, 'Edit Obstacles')
+        self.btn_edit.on_clicked(self.edit_obstacles)
     
     def setup_visualization_controls(self):
         """Add controls for advanced visualization options"""
@@ -356,14 +369,27 @@ class CrowdSimulationGUI:
     
     def _draw_environment(self):
         """Draw environmental elements with enhanced visuals"""
-        # Draw obstacles
-        for obstacle in self.simulator.obstacles:
-            pos = obstacle["position"]
-            width = obstacle["width"]
-            height = obstacle["height"]
-            rect = Rectangle((pos[0]-width/2, pos[1]-height/2), width, height,
-                           color='gray', alpha=0.7)
-            self.ax_main.add_patch(rect)
+        # Draw obstacles if enabled
+        if hasattr(self, 'show_obstacles') and self.show_obstacles:
+            for obstacle in self.simulator.obstacles:
+                pos = obstacle["position"]
+                width = obstacle["width"]
+                height = obstacle["height"]
+                is_wall = obstacle.get("is_wall", False)
+                
+                # Different styling for walls vs obstacles
+                color = 'black' if is_wall else 'gray'
+                alpha = 0.9 if is_wall else 0.7
+                
+                rect = Rectangle((pos[0]-width/2, pos[1]-height/2), width, height,
+                               color=color, alpha=alpha)
+                self.ax_main.add_patch(rect)
+                
+                # Label significant obstacles
+                if width * height > 9 and not is_wall:  # Larger than 3x3
+                    self.ax_main.text(pos[0], pos[1], 'Obstacle',
+                                    ha='center', va='center',
+                                    color='white', fontsize=8)
         
         # Draw exits if present
         if hasattr(self.simulator, 'exits') and self.simulator.exits:
@@ -550,6 +576,65 @@ class CrowdSimulationGUI:
             )
         else:
             self.status_display.set_text(status_text)
+    
+    def toggle_obstacles(self, label):
+        """Toggle obstacle visibility"""
+        self.show_obstacles = not self.show_obstacles
+
+    def edit_obstacles(self, event):
+        """Open obstacle editor dialog"""
+        from matplotlib.widgets import TextBox
+        
+        # Create a new figure for obstacle editing
+        fig_edit = plt.figure(figsize=(8, 6))
+        fig_edit.canvas.manager.set_window_title('Obstacle Editor')
+        
+        ax = fig_edit.add_subplot(111)
+        ax.set_xlim(0, self.simulator.arena_width)
+        ax.set_ylim(0, self.simulator.arena_height)
+        
+        # Draw current obstacles
+        for obstacle in self.simulator.obstacles:
+            pos = obstacle["position"]
+            width = obstacle["width"]
+            height = obstacle["height"]
+            rect = Rectangle((pos[0]-width/2, pos[1]-height/2), width, height,
+                            color='gray' if not obstacle.get("is_wall", False) else 'black',
+                            alpha=0.7)
+            ax.add_patch(rect)
+        
+        # Add obstacle on click
+        def onclick(event):
+            if event.inaxes != ax:
+                return
+            
+            # Create obstacle at click position
+            new_obstacle = {
+                "position": [event.xdata, event.ydata],
+                "width": 2.0,  # Default width
+                "height": 2.0  # Default height
+            }
+            self.simulator.obstacles.append(new_obstacle)
+            
+            # Redraw
+            ax.clear()
+            ax.set_xlim(0, self.simulator.arena_width)
+            ax.set_ylim(0, self.simulator.arena_height)
+            for obstacle in self.simulator.obstacles:
+                pos = obstacle["position"]
+                width = obstacle["width"]
+                height = obstacle["height"]
+                rect = Rectangle((pos[0]-width/2, pos[1]-height/2), width, height,
+                               color='gray', alpha=0.7)
+                ax.add_patch(rect)
+            plt.draw()
+        
+        # Connect click event
+        fig_edit.canvas.mpl_connect('button_press_event', onclick)
+        
+        # Add instructions
+        ax.set_title('Click to add obstacles\nClose window when done')
+        plt.show()
 
 def run_crowd_simulation_with_gui():
     """Run crowd simulation with enhanced GUI"""
