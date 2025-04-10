@@ -9,6 +9,11 @@ import time
 from crowd_flow_simulator import CrowdFlowSimulator
 from crowd_flow_analyzer import CrowdFlowAnalyzer
 
+# Add these imports at the top
+from matplotlib.patches import Circle, Rectangle, Arrow, FancyArrowPatch
+from matplotlib.collections import PatchCollection
+import matplotlib.patheffects as path_effects
+
 class CrowdSimulationGUI:
     def __init__(self, simulator, analyzer=None):
         """Initialize the GUI with a simulator and optional analyzer instance"""
@@ -24,15 +29,18 @@ class CrowdSimulationGUI:
         self.agent_colors = self._generate_agent_colors()
         self.exit_width = self._get_default_exit_width()
         
-        # Set up the figure and axes
+        # Set up the figure and axes with adjusted layout
         self.fig = plt.figure(figsize=(14, 9))
         self.fig.canvas.manager.set_window_title('Advanced Crowd Flow Simulator')
         
-        # Main plotting area
-        self.ax_main = self.fig.add_axes([0.1, 0.25, 0.8, 0.65])
+        # Main plotting area with adjusted position
+        self.ax_main = self.fig.add_axes([0.1, 0.25, 0.7, 0.65])
         
-        # Set up control panel area
+        # Control panel area
         self.setup_controls()
+        
+        # Add this line to avoid tight_layout warning
+        self.fig.set_tight_layout(False)
         
         # Initialize the stats area
         self.stats_text = self.ax_main.text(0.02, 0.98, '', 
@@ -55,6 +63,23 @@ class CrowdSimulationGUI:
         self.analysis_type = 'density'  # Default analysis view
         self.recording = True  # Whether to record frames for analysis
         
+        # Add new visualization settings
+        self.show_human_shapes = True  # Toggle between circles and human shapes
+        self.show_paths = False        # Show agent paths
+        self.show_heatmap = False     # Show real-time heatmap
+        self.path_history = []        # Store agent paths
+        self.max_path_length = 50     # Maximum length of path history
+        
+        # Color schemes
+        self.color_schemes = {
+            'speed': plt.cm.RdYlBu,      # Red to Blue for speed
+            'density': plt.cm.viridis,    # Default density colormap
+            'stress': plt.cm.RdYlGn_r     # Red for high stress
+        }
+        
+        # Add visualization controls
+        self.setup_visualization_controls()
+    
     def _generate_agent_colors(self):
         """Generate consistent colors for agents"""
         # Use a colormap to assign colors based on agent index
@@ -111,6 +136,25 @@ class CrowdSimulationGUI:
         ax_export = self.fig.add_axes([0.85, 0.15, 0.1, 0.04])
         self.btn_export = Button(ax_export, 'Export Analysis')
         self.btn_export.on_clicked(self.export_analysis)
+    
+    def setup_visualization_controls(self):
+        """Add controls for advanced visualization options"""
+        # Visualization mode buttons
+        ax_viz = self.fig.add_axes([0.85, 0.6, 0.1, 0.2])
+        self.viz_radio = RadioButtons(ax_viz, 
+            ('Basic', 'Human', 'Heatmap', 'Stress'),
+            active=0)
+        self.viz_radio.on_clicked(self.update_visualization_mode)
+        
+        # Path tracking toggle
+        ax_path = self.fig.add_axes([0.85, 0.55, 0.1, 0.04])
+        self.btn_path = Button(ax_path, 'Show Paths')
+        self.btn_path.on_clicked(self.toggle_paths)
+        
+        # Color scheme selector
+        ax_color = self.fig.add_axes([0.85, 0.5, 0.1, 0.04])
+        self.btn_color = Button(ax_color, 'Color Scheme')
+        self.btn_color.on_clicked(self.cycle_color_scheme)
     
     def update_display_options(self, label):
         """Update display options based on checkbox selection"""
@@ -174,71 +218,30 @@ class CrowdSimulationGUI:
     
     def setup_animation(self):
         """Set up the animation elements"""
-        # Initialize the plot
         self.ax_main.set_xlim(0, self.simulator.arena_width)
         self.ax_main.set_ylim(0, self.simulator.arena_height)
         self.ax_main.set_title('Crowd Flow Simulation')
-        self.ax_main.set_xlabel('X Position')
-        self.ax_main.set_ylabel('Y Position')
         self.ax_main.grid(True, alpha=0.3)
         
-        # Create collections for various graphical elements
-        self.agent_circles = []
-        self.velocity_arrows = []
-        self.personal_space_circles = []
-        
-        # Draw obstacles
-        for obstacle in self.simulator.obstacles:
-            pos = obstacle["position"]
-            width = obstacle["width"]
-            height = obstacle["height"]
-            rect = Rectangle((pos[0]-width/2, pos[1]-height/2), width, height,
-                           color='gray', alpha=0.7)
-            self.ax_main.add_patch(rect)
-        
-        # Draw exits if present
-        if hasattr(self.simulator, 'exits') and self.simulator.exits:
-            for exit_info in self.simulator.exits:
-                exit_pos = exit_info["position"]
-                exit_width = exit_info["width"]
-                
-                # Different visualization based on exit position
-                if exit_pos[0] == 0:  # Left wall
-                    rect = Rectangle((-0.2, exit_pos[1] - exit_width/2), 0.2, exit_width,
-                                   color='green', alpha=0.7)
-                    self.ax_main.add_patch(rect)
-                    self.ax_main.text(2, exit_pos[1], 'EXIT',
-                                    ha='left', va='center', color='green', fontsize=12)
-                elif exit_pos[0] == self.simulator.arena_width:  # Right wall
-                    rect = Rectangle((self.simulator.arena_width, exit_pos[1] - exit_width/2),
-                                   0.2, exit_width, color='green', alpha=0.7)
-                    self.ax_main.add_patch(rect)
-                    self.ax_main.text(self.simulator.arena_width-2, exit_pos[1], 'EXIT',
-                                    ha='right', va='center', color='green', fontsize=12)
-                elif exit_pos[1] == 0:  # Bottom wall
-                    rect = Rectangle((exit_pos[0] - exit_width/2, -0.2), exit_width, 0.2,
-                                   color='green', alpha=0.7)
-                    self.ax_main.add_patch(rect)
-                    self.ax_main.text(exit_pos[0], 2, 'EXIT',
-                                    ha='center', va='bottom', color='green', fontsize=12)
-                elif exit_pos[1] == self.simulator.arena_height:  # Top wall
-                    rect = Rectangle((exit_pos[0] - exit_width/2, self.simulator.arena_height),
-                                   exit_width, 0.2, color='green', alpha=0.7)
-                    self.ax_main.add_patch(rect)
-                    self.ax_main.text(exit_pos[0], self.simulator.arena_height-2, 'EXIT',
-                                    ha='center', va='top', color='green', fontsize=12)
-        
-        # Create animation
-        self.anim = FuncAnimation(self.fig, self.update_frame, 
-                                 frames=self.simulator.time_steps,
-                                 interval=20, blit=False)
+        # Create animation with improved settings
+        self.anim = FuncAnimation(
+            self.fig, 
+            self.update_frame,
+            frames=None,
+            interval=50,  # 50ms between frames
+            blit=False,
+            cache_frame_data=False,  # Disable frame caching
+            repeat=False
+        )
     
     def update_frame(self, frame):
-        """Update the animation frame with analysis integration"""
-        # Clear the plot
+        """Update the animation frame"""
+        # Clear the plot for redrawing
         self.ax_main.cla()
         self.ax_main.set_xlim(0, self.simulator.arena_width)
         self.ax_main.set_ylim(0, self.simulator.arena_height)
+        self.ax_main.set_title('Crowd Flow Simulation')
+        self.ax_main.grid(True, alpha=0.3)
         
         # Run simulation step if not paused
         if not self.paused:
@@ -247,31 +250,10 @@ class CrowdSimulationGUI:
             if self.recording:
                 self.analyzer.record_frame()
         
-        # Show analysis visualizations if enabled
-        if self.show_analysis:
-            if self.analysis_type == 'density':
-                # Save current axes
-                current_ax = plt.gca()
-                plt.sca(self.ax_main)
-                self.analyzer.visualize_density()
-                plt.sca(current_ax)
-            elif self.analysis_type == 'velocity':
-                current_ax = plt.gca()
-                plt.sca(self.ax_main)
-                self.analyzer.visualize_velocity_field()
-                plt.sca(current_ax)
-            elif self.analysis_type == 'voronoi':
-                current_ax = plt.gca()
-                plt.sca(self.ax_main)
-                self.analyzer.visualize_voronoi_diagram()
-                plt.sca(current_ax)
-        else:
-            # Regular simulation visualization
-            self._draw_simulation_state()
+        # Draw current simulation state
+        self._draw_simulation_state()
         
-        # Update statistics with analysis data
-        self._update_statistics()
-        
+        # Return empty list as required by FuncAnimation
         return []
     
     def _update_statistics(self):
@@ -291,7 +273,7 @@ class CrowdSimulationGUI:
         self.stats_text.set_text(stats_text)
         
     def _draw_simulation_state(self):
-        """Draw the current simulation state"""
+        """Enhanced drawing of simulation state"""
         # Get simulation data
         active_indices = np.where(self.simulator.active_agents)[0]
         active_positions = self.simulator.positions[self.simulator.active_agents]
@@ -304,36 +286,76 @@ class CrowdSimulationGUI:
                 self.X, self.Y, density, cmap='viridis', alpha=0.5, levels=15
             )
         
-        # Draw agents
+        # Update path history if enabled
+        if self.show_paths:
+            if len(self.path_history) > self.max_path_length:
+                self.path_history.pop(0)
+            self.path_history.append(active_positions.copy())
+        
+        # Draw density heatmap if enabled
+        if self.show_heatmap:
+            density = self.calculate_density_field()
+            self.ax_main.contourf(self.X, self.Y, density, 
+                                levels=15, cmap=self.color_schemes['density'],
+                                alpha=0.3)
+        
+        # Draw agents and their velocities
         for i, pos in enumerate(active_positions):
             agent_idx = active_indices[i]
             color = self.agent_colors[agent_idx]
+            vel = active_velocities[i]
+            speed = np.linalg.norm(vel)
+            heading = np.arctan2(vel[1], vel[0]) if speed > 0 else 0
             
-            # Draw agent circle
-            circle = Circle(pos, self.simulator.agent_radius, color=color, alpha=0.7)
-            self.ax_main.add_patch(circle)
+            # Calculate stress level based on local density and speed
+            local_density = self._calculate_local_density(pos, active_positions)
+            stress_level = min(1.0, local_density * (1 - speed/3.0))
+            
+            if self.show_human_shapes:
+                self._draw_human_shape(pos, heading, color, stress_level)
+            else:
+                circle = Circle(pos, self.simulator.agent_radius, 
+                              color=color, alpha=0.7)
+                self.ax_main.add_patch(circle)
             
             # Draw velocity vector if enabled
-            if self.show_velocities:
-                vel = active_velocities[i]
-                speed = np.linalg.norm(vel)
+            if self.show_velocities and speed > 0.1:  # Only show for moving agents
+                # Scale velocity vector for visualization
+                scale = 1.0  # Adjust this value to change arrow length
+                vel_scaled = vel * scale
                 
-                # Scale arrow length based on speed
-                arrow_length = min(speed, 3.0)
-                if speed > 0:
-                    direction = vel / speed
-                    self.ax_main.arrow(
-                        pos[0], pos[1],
-                        direction[0] * arrow_length, direction[1] * arrow_length,
-                        head_width=0.3, head_length=0.3, fc='red', ec='red', alpha=0.7
-                    )
+                # Draw arrow
+                arrow = FancyArrowPatch(
+                    pos, pos + vel_scaled,
+                    color='red',
+                    alpha=0.7,
+                    arrowstyle='-|>',
+                    mutation_scale=10,
+                    shrinkA=0.5,
+                    shrinkB=0.5
+                )
+                self.ax_main.add_patch(arrow)
             
-            # Draw personal space if enabled
-            if self.show_personal_space:
-                personal_space = Circle(pos, 1.5, color=color, fill=False, 
-                                      linestyle='--', alpha=0.3)
-                self.ax_main.add_patch(personal_space)
+            # Draw paths if enabled
+            if self.show_paths and len(self.path_history) > 1:
+                path_positions = [frame[i] for frame in self.path_history 
+                                if i < len(frame)]
+                self._draw_agent_path(path_positions, color)
         
+        # Draw environment
+        self._draw_environment()
+        
+        # Update status display
+        self._update_status_display()
+    
+    def _calculate_local_density(self, pos, all_positions):
+        """Calculate local density around a position"""
+        distances = np.linalg.norm(all_positions - pos, axis=1)
+        nearby = distances < 2.0  # 2 meter radius
+        return np.sum(nearby) / (np.pi * 4.0)  # agents per square meter
+    
+    def _draw_environment(self):
+        """Draw environmental elements with enhanced visuals"""
         # Draw obstacles
         for obstacle in self.simulator.obstacles:
             pos = obstacle["position"]
@@ -374,40 +396,109 @@ class CrowdSimulationGUI:
                     self.ax_main.add_patch(rect)
                     self.ax_main.text(exit_pos[0], self.simulator.arena_height-2, 'EXIT',
                                     ha='center', va='top', color='green', fontsize=12)
+    
+    def _draw_human_shape(self, pos, heading, color, stress_level=0):
+        """Draw a more human-like shape instead of a circle"""
+        # Body
+        body_radius = self.simulator.agent_radius
+        body = Circle(pos, body_radius, color=color, alpha=0.7)
+        self.ax_main.add_patch(body)
         
-        # Update statistics
-        active_count = np.sum(self.simulator.active_agents)
-        avg_speed = np.mean(np.linalg.norm(active_velocities, axis=1)) if len(active_velocities) > 0 else 0
-        evacuation_ratio = 1 - (active_count / self.simulator.num_agents)
+        # Head
+        head_pos = (pos[0] + 0.3*body_radius*np.cos(heading),
+                   pos[1] + 0.3*body_radius*np.sin(heading))
+        head = Circle(head_pos, body_radius*0.3, color=color, alpha=0.7)
+        self.ax_main.add_patch(head)
         
-        stats_text = (
-            f'Step: {self.step_count}/{self.simulator.time_steps}\n'
-            f'Active Agents: {active_count}/{self.simulator.num_agents}\n'
-            f'Evacuation: {evacuation_ratio:.1%}\n'
-            f'Avg Speed: {avg_speed:.2f}'
-        )
-        self.stats_text = self.ax_main.text(0.02, 0.98, stats_text, 
-                                         transform=self.ax_main.transAxes,
-                                         verticalalignment='top',
-                                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        # Stress indicator (optional)
+        if stress_level > 0:
+            stress_color = plt.cm.RdYlGn_r(stress_level)
+            stress_ring = Circle(pos, body_radius*1.2, 
+                               color=stress_color, fill=False, 
+                               linestyle='--', alpha=0.5)
+            self.ax_main.add_patch(stress_ring)
+    
+    def _draw_agent_path(self, positions, color):
+        """Draw the recent path of an agent"""
+        if len(positions) < 2:
+            return
+            
+        # Create smooth path
+        from scipy.interpolate import interp1d
+        points = np.array(positions)
+        x = points[:, 0]
+        y = points[:, 1]
         
-        # Check if simulation should end
-        if active_count == 0 and self.simulator.has_exit:
-            self.paused = True
-            self.ax_main.text(0.5, 0.5, 'Evacuation Complete!', 
-                           transform=self.ax_main.transAxes, 
-                           ha='center', va='center', fontsize=24,
-                           bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+        # Interpolate path
+        t = np.arange(len(positions))
+        t_smooth = np.linspace(0, len(positions)-1, 100)
         
-        # Adjust animation speed based on slider
-        self.anim.event_source.interval = 200 - self.slider_speed.val
+        try:
+            x_smooth = interp1d(t, x, kind='quadratic')(t_smooth)
+            y_smooth = interp1d(t, y, kind='quadratic')(t_smooth)
+            
+            # Draw smooth path with fade effect
+            for i in range(len(x_smooth)-1):
+                alpha = 0.1 + 0.4 * (i / len(x_smooth))
+                self.ax_main.plot(x_smooth[i:i+2], y_smooth[i:i+2], 
+                                color=color, alpha=alpha, linewidth=1)
+        except ValueError:
+            # Fallback to simple line if interpolation fails
+            self.ax_main.plot(x, y, color=color, alpha=0.3, linewidth=1)
+    
+    def _draw_enhanced_exit(self, exit_info):
+        """Draw exit with enhanced visual effects"""
+        exit_pos = exit_info["position"]
+        exit_width = exit_info["width"]
         
-        return []
+        # Base exit rectangle
+        rect = self._create_exit_rect(exit_pos, exit_width)
+        self.ax_main.add_patch(rect)
+        
+        # Add glow effect
+        glow = self._create_exit_rect(exit_pos, exit_width*1.1)
+        glow.set_alpha(0.3)
+        glow.set_facecolor('yellow')
+        self.ax_main.add_patch(glow)
+        
+        # Add 'EXIT' text with outline
+        text = self._add_exit_text(exit_pos, exit_width)
+        text.set_path_effects([
+            path_effects.Stroke(linewidth=3, foreground='white'),
+            path_effects.Normal()
+        ])
+    
+    def update_visualization_mode(self, label):
+        """Update visualization mode based on radio button selection"""
+        self.show_human_shapes = (label == 'Human')
+        self.show_heatmap = (label == 'Heatmap')
+        self.show_stress = (label == 'Stress')
+    
+    def toggle_paths(self, event):
+        """Toggle path visualization"""
+        self.show_paths = not self.show_paths
+        if not self.show_paths:
+            self.path_history.clear()
+        self.btn_path.label.set_text('Paths: ' + ('On' if self.show_paths else 'Off'))
+    
+    def cycle_color_scheme(self, event):
+        """Cycle through available color schemes"""
+        schemes = list(self.color_schemes.keys())
+        current = getattr(self, '_current_scheme_index', 0)
+        next_index = (current + 1) % len(schemes)
+        self._current_scheme_index = next_index
+        self.colormap = self.color_schemes[schemes[next_index]]
     
     def run(self):
-        """Run the GUI"""
-        plt.tight_layout()
+        """Run the simulation GUI"""
+        # Make sure the window is in the foreground
+        self.fig.canvas.manager.window.attributes('-topmost', 1)
+        self.fig.canvas.manager.window.attributes('-topmost', 0)
+        
+        # Show the plot and start the animation
         plt.show()
+        
+        return self.anim
     
     def update_analysis_view(self, label):
         """Update the analysis visualization type"""
@@ -424,6 +515,41 @@ class CrowdSimulationGUI:
         filename = 'simulation_analysis.json'
         self.analyzer.export_analysis(filename)
         print(f"Analysis results exported to {filename}")
+    
+    def _update_status_display(self):
+        """Update status display with simulation metrics"""
+        # Get statistics
+        active_count = np.sum(self.simulator.active_agents)
+        stats = self.analyzer.analyze_evacuation_efficiency()
+        emergent = self.analyzer.summarize_emergent_behaviors()
+        
+        # Create modern status box in top-right corner
+        status_box = dict(boxstyle='round,pad=0.5', facecolor='black', alpha=0.7)
+        
+        # Format status text with emoji indicators
+        status_text = (
+            f"🕒 Step: {self.step_count}/{self.simulator.time_steps}\n"
+            f"👥 Active: {active_count}/{self.simulator.num_agents}\n"
+            f"🚪 Evacuated: {stats['evacuation_percentage']:.1f}%\n"
+            f"⚡ Avg Speed: {stats['avg_evacuation_rate']:.2f} m/s\n"
+            f"⚠️ Bottlenecks: {emergent['bottlenecks']['average']:.1f}\n"
+            f"🔄 {'Recording' if self.recording else 'Paused'}"
+        )
+        
+        # Update or create status text with styling
+        if not hasattr(self, 'status_display'):
+            self.status_display = self.ax_main.text(
+                0.98, 0.98, status_text,
+                transform=self.ax_main.transAxes,
+                color='white',
+                fontfamily='monospace',
+                fontsize=10,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=status_box
+            )
+        else:
+            self.status_display.set_text(status_text)
 
 def run_crowd_simulation_with_gui():
     """Run crowd simulation with enhanced GUI"""

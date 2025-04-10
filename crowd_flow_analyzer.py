@@ -868,16 +868,33 @@ class CrowdFlowAnalyzer:
     
     def export_analysis(self, filename):
         """Export analysis results to a JSON file"""
+        # Convert numpy types to Python native types
+        def convert_to_native(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_native(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_native(item) for item in obj]
+            return obj
+
         results = {
             "evacuation_efficiency": self.analyze_evacuation_efficiency(),
             "emergent_behaviors": self.summarize_emergent_behaviors(),
             "simulation_parameters": {
-                "num_agents": self.simulator.num_agents,
-                "arena_width": self.simulator.arena_width,
-                "arena_height": self.simulator.arena_height,
+                "num_agents": int(self.simulator.num_agents),  # Convert to native int
+                "arena_width": float(self.simulator.arena_width),  # Convert to native float
+                "arena_height": float(self.simulator.arena_height),
                 "time_steps": len(self.active_agents_history)
             }
         }
+        
+        # Convert all numpy types to native Python types
+        results = convert_to_native(results)
         
         with open(filename, 'w') as f:
             json.dump(results, f, indent=4)
