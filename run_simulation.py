@@ -16,6 +16,9 @@ def parse_arguments():
     parser.add_argument('--create_layout', action='store_true', help='Create a new custom layout')
     parser.add_argument('--analyze_only', action='store_true', help='Run analysis without GUI')
     parser.add_argument('--output', type=str, default='simulation_analysis.json', help='Output file for analysis')
+    # Add new arguments for animation control
+    parser.add_argument('--smooth', action='store_true', help='Enable motion smoothing')
+    parser.add_argument('--fps', type=int, default=30, help='Animation frames per second')
     return parser.parse_args()
 
 def main():
@@ -29,12 +32,16 @@ def main():
         temp_analyzer.create_custom_layout(layout_file)
         args.custom_layout = layout_file
 
-    # Create simulator with default exit configuration and obstacles
+    # Calculate time step based on FPS if smooth animation is enabled
+    dt = 1.0/args.fps if args.smooth else 0.1
+
+    # Create simulator with smooth animation settings
     simulator = CrowdFlowSimulator(
         num_agents=args.num_agents,
         arena_width=args.arena_width,
         arena_height=args.arena_height,
         time_steps=args.time_steps,
+        dt=dt,  # Use FPS-based time step
         custom_layout={
             "exits": [
                 {
@@ -98,6 +105,9 @@ def main():
     else:
         # Create and run GUI with analyzer integration
         gui = CrowdSimulationGUI(simulator, analyzer)
+        if args.smooth:
+            # Update animation settings for smooth motion
+            gui.anim.event_source.interval = 1000 / args.fps  # Convert FPS to milliseconds
         gui.run()
 
     print("Simulation complete!")

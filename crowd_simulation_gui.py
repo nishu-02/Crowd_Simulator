@@ -292,26 +292,6 @@ class CrowdSimulationGUI:
         active_positions = self.simulator.positions[self.simulator.active_agents]
         active_velocities = self.simulator.velocities[self.simulator.active_agents]
         
-        # Show density field if selected
-        if self.show_density:
-            density = self.calculate_density_field()
-            self.density_plot = self.ax_main.contourf(
-                self.X, self.Y, density, cmap='viridis', alpha=0.5, levels=15
-            )
-        
-        # Update path history if enabled
-        if self.show_paths:
-            if len(self.path_history) > self.max_path_length:
-                self.path_history.pop(0)
-            self.path_history.append(active_positions.copy())
-        
-        # Draw density heatmap if enabled
-        if self.show_heatmap:
-            density = self.calculate_density_field()
-            self.ax_main.contourf(self.X, self.Y, density, 
-                                levels=15, cmap=self.color_schemes['density'],
-                                alpha=0.3)
-        
         # Draw agents and their velocities
         for i, pos in enumerate(active_positions):
             agent_idx = active_indices[i]
@@ -320,15 +300,11 @@ class CrowdSimulationGUI:
             speed = np.linalg.norm(vel)
             heading = np.arctan2(vel[1], vel[0]) if speed > 0 else 0
             
-            # Calculate stress level based on local density and speed
-            local_density = self._calculate_local_density(pos, active_positions)
-            stress_level = min(1.0, local_density * (1 - speed/3.0))
-            
+            # Draw agent
             if self.show_human_shapes:
-                self._draw_human_shape(pos, heading, color, stress_level)
+                self._draw_human_shape(pos, heading, color)
             else:
-                circle = Circle(pos, self.simulator.agent_radius, 
-                              color=color, alpha=0.7)
+                circle = Circle(pos, self.simulator.agent_radius, color=color, alpha=0.7)
                 self.ax_main.add_patch(circle)
             
             # Draw velocity vector if enabled
@@ -348,12 +324,26 @@ class CrowdSimulationGUI:
                     shrinkB=0.5
                 )
                 self.ax_main.add_patch(arrow)
-            
-            # Draw paths if enabled
-            if self.show_paths and len(self.path_history) > 1:
-                path_positions = [frame[i] for frame in self.path_history 
-                                if i < len(frame)]
-                self._draw_agent_path(path_positions, color)
+        
+        # Show density field if selected
+        if self.show_density:
+            density = self.calculate_density_field()
+            self.density_plot = self.ax_main.contourf(
+                self.X, self.Y, density, cmap='viridis', alpha=0.5, levels=15
+            )
+        
+        # Update path history if enabled
+        if self.show_paths:
+            if len(self.path_history) > self.max_path_length:
+                self.path_history.pop(0)
+            self.path_history.append(active_positions.copy())
+        
+        # Draw density heatmap if enabled
+        if self.show_heatmap:
+            density = self.calculate_density_field()
+            self.ax_main.contourf(self.X, self.Y, density, 
+                                levels=15, cmap=self.color_schemes['density'],
+                                alpha=0.3)
         
         # Draw environment
         self._draw_environment()
