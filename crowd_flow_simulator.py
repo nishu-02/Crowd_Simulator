@@ -5,20 +5,29 @@ from matplotlib.patches import Rectangle, Circle
 import argparse
 from scipy.spatial import distance
 import time
+import json
+import os
 
 class CrowdFlowSimulator:
     def __init__(self, num_agents=100, arena_width=50, arena_height=50, 
-                 time_steps=1000, dt=0.1, has_exit=True, has_obstacles=False):
-        """Initialize the crowd flow simulator"""
+                 time_steps=1000, dt=0.1, custom_layout=None):
+        """Initialize the crowd flow simulator
+        
+        Args:
+            num_agents: Number of agents in the simulation
+            arena_width: Width of the arena
+            arena_height: Height of the arena
+            time_steps: Maximum number of simulation steps
+            dt: Time step size
+            custom_layout: Path to a JSON file with custom layout or a dictionary containing layout data
+        """
         self.num_agents = num_agents
         self.arena_width = arena_width
         self.arena_height = arena_height
         self.time_steps = time_steps
         self.dt = dt
-        self.has_exit = has_exit
-        self.has_obstacles = has_obstacles
         
-        # Social force parameters
+        # Social force parameters - more realistic values
         self.A = 2.0       # Repulsion strength between agents
         self.B = 1.0       # Repulsion range
         self.A_wall = 10.0  # Wall repulsion strength
@@ -26,47 +35,136 @@ class CrowdFlowSimulator:
         self.tau = 0.5     # Relaxation time
         self.agent_radius = 0.3  # Physical radius of agents
         
-        # Agent properties
+        # Agent properties - more realistic distribution
         self.positions = np.random.rand(num_agents, 2) * [arena_width, arena_height]
         self.velocities = np.zeros((num_agents, 2))
-        self.desired_speed = 1.0 + 0.3 * np.random.randn(num_agents)  # Desired speed varies by individual
+        
+        # More realistic speed distribution based on human walking speeds (meters/second)
+        self.desired_speed = np.random.normal(1.4, 0.26, num_agents)  # Mean 1.4 m/s, SD 0.26 m/s
+        self.desired_speed = np.clip(self.desired_speed, 0.8, 2.0)  # Clip to realistic range
+        
         self.desired_directions = np.zeros((num_agents, 2))
         
-        # Exit and obstacles
-        if self.has_exit:
-            self.exit_position = np.array([arena_width, arena_height/2])
-            self.exit_width = 3.0
+        # Initialize defaults before custom layout parsing
+        self.exits = []
+        self.obstacles = []
+        self.has_exit = False
+        self.has_obstacles = False
         
-        if self.has_obstacles:
-            self.obstacles = self._create_obstacles()
+        # Parse custom layout if provided
+        if custom_layout:
+            self._parse_custom_layout(custom_layout)
         else:
-            self.obstacles = []
+            # Default simple layout with single exit
+            self.exits.append({
+                "position": [arena_width, arena_height/2],
+                "width": 3.0
+            })
+            self.has_exit = True
         
         # Statistics
         self.evacuation_times = []
         self.active_agents = np.ones(num_agents, dtype=bool)  # Track which agents are still in the arena
         
-        # Set initial desired directions (toward exit if exists)
+        # Set initial desired directions (toward closest exit if exists)
         self._update_desired_directions()
+        
+        # Ensure agents don't start inside obstacles
+        self._relocate_agents_from_obstacles()
     
-    def _create_obstacles(self):
-        """Create obstacles in the arena"""
-        obstacles = []
+    def _parse_custom_layout(self, layout):
+        """Parse custom layout from file or dictionary"""
+        # If layout is a string, assume it's a file path
+        if isinstance(layout, str):
+            if os.path.exists(layout):
+                with open(layout, 'r') as f:
+                    layout_data = json.load(f)
+            else:
+                raise FileNotFoundError(f"Custom layout file not found: {layout}")
+        else:
+            # Assume it's already a dictionary
+            layout_data = layout
         
-        # Add a central obstacle
-        center_x, center_y = self.arena_width / 2, self.arena_height / 2
-        width, height = 10, 2
-        obstacles.append({"position": [center_x, center_y], "width": width, "height": height})
+        # Parse exits
+        if 'exits' in layout_data and layout_data['exits']:
+            self.exits = layout_data['exits']
+            self.has_exit = True
         
-        # Add some random obstacles
-        for _ in range(2):
-            pos_x = self.arena_width * 0.2 + 0.6 * self.arena_width * np.random.rand()
-            pos_y = self.arena_height * 0.2 + 0.6 * self.arena_height * np.random.rand()
-            width = 2 + 5 * np.random.rand()
-            height = 2 + 5 * np.random.rand()
-            obstacles.append({"position": [pos_x, pos_y], "width": width, "height": height})
+        # Parse obstacles
+        if 'obstacles' in layout_data and layout_data['obstacles']:
+            self.obstacles = layout_data['obstacles']
+            self.has_obstacles = True
             
-        return obstacles
+        # Parse walls (special type of obstacles that define the arena boundaries)
+        if 'walls' in layout_data and layout_data['walls']:
+            for wall in layout_data['walls']:
+                self.obstacles.append({
+                    "position": wall["position"],
+                    "width": wall["width"],
+                    "height": wall["height"],
+                    "is_wall": True
+                })
+            self.has_obstacles = True
+    
+    def _relocate_agents_from_obstacles(self):
+        """Ensure agents don't start inside obstacles"""
+        for i in range(self.num_agents):
+            # Check if agent is inside any obstacle
+            while self._is_inside_obstacle(self.positions[i]):
+                # Relocate to a random position
+                self.positions[i] = np.random.rand(2) * [self.arena_width, self.arena_height]
+    
+    def _is_inside_obstacle(self, position):
+        """Check if a position is inside any obstacle"""
+        for obstacle in self.obstacles:
+            pos = np.array(obstacle["position"])
+            width = obstacle["width"]
+            height = obstacle["height"]
+            
+            # Check if position is inside the rectangle
+            if (abs(position[0] - pos[0]) < width/2 and 
+                abs(position[1] - pos[1]) < height/2):
+                return True
+                
+        return False
+    
+    def _find_closest_exit(self, position):
+        """Find the closest exit to a given position"""
+        if not self.has_exit or not self.exits:
+            return None
+            
+        closest_exit = None
+        min_distance = float('inf')
+        
+        for exit_info in self.exits:
+            exit_pos = np.array(exit_info["position"])
+            exit_width = exit_info["width"]
+            
+            # Calculate distance to exit
+            # For horizontal exits (on right/left walls)
+            if exit_pos[0] == 0 or exit_pos[0] == self.arena_width:
+                # Find closest point on exit line segment
+                y_on_exit = np.clip(position[1], 
+                                    exit_pos[1] - exit_width/2, 
+                                    exit_pos[1] + exit_width/2)
+                exit_point = np.array([exit_pos[0], y_on_exit])
+            # For vertical exits (on top/bottom walls)
+            elif exit_pos[1] == 0 or exit_pos[1] == self.arena_height:
+                x_on_exit = np.clip(position[0], 
+                                    exit_pos[0] - exit_width/2, 
+                                    exit_pos[0] + exit_width/2)
+                exit_point = np.array([x_on_exit, exit_pos[1]])
+            else:
+                # Interior exit (not implemented)
+                exit_point = exit_pos
+            
+            dist = np.linalg.norm(position - exit_point)
+            
+            if dist < min_distance:
+                min_distance = dist
+                closest_exit = exit_info
+                
+        return closest_exit
     
     def _update_desired_directions(self):
         """Update desired directions for all agents"""
@@ -75,21 +173,49 @@ class CrowdFlowSimulator:
                 continue
                 
             if self.has_exit:
-                # Direction toward exit
-                diff = self.exit_position - self.positions[i]
-                distance = np.linalg.norm(diff)
-                if distance > 0:
-                    self.desired_directions[i] = diff / distance
+                # Find closest exit
+                closest_exit = self._find_closest_exit(self.positions[i])
+                
+                if closest_exit:
+                    exit_pos = np.array(closest_exit["position"])
+                    exit_width = closest_exit["width"]
+                    
+                    # Determine target point on exit
+                    # For horizontal exits (on right/left walls)
+                    if exit_pos[0] == 0 or exit_pos[0] == self.arena_width:
+                        y_on_exit = np.clip(self.positions[i, 1], 
+                                           exit_pos[1] - exit_width/2, 
+                                           exit_pos[1] + exit_width/2)
+                        target_point = np.array([exit_pos[0], y_on_exit])
+                    # For vertical exits (on top/bottom walls)
+                    elif exit_pos[1] == 0 or exit_pos[1] == self.arena_height:
+                        x_on_exit = np.clip(self.positions[i, 0], 
+                                           exit_pos[0] - exit_width/2, 
+                                           exit_pos[0] + exit_width/2)
+                        target_point = np.array([x_on_exit, exit_pos[1]])
+                    else:
+                        # Interior exit (not implemented)
+                        target_point = exit_pos
+                    
+                    # Direction toward exit
+                    diff = target_point - self.positions[i]
+                    distance = np.linalg.norm(diff)
+                    if distance > 0:
+                        self.desired_directions[i] = diff / distance
+                else:
+                    # Random direction if no exit found
+                    angle = 2 * np.pi * np.random.rand()
+                    self.desired_directions[i] = np.array([np.cos(angle), np.sin(angle)])
             else:
                 # Random direction if no exit
                 angle = 2 * np.pi * np.random.rand()
                 self.desired_directions[i] = np.array([np.cos(angle), np.sin(angle)])
     
     def _compute_wall_force(self, position):
-        """Compute force from walls"""
+        """Compute force from arena walls"""
         force = np.zeros(2)
         
-        # Distance to walls
+        # Distance to arena walls
         d_left = position[0]
         d_right = self.arena_width - position[0]
         d_bottom = position[1]
@@ -123,26 +249,67 @@ class CrowdFlowSimulator:
             distance = np.sqrt(dx**2 + dy**2)
             
             if distance < 2:  # Only apply force if close enough
-                # Direction away from obstacle
-                direction = position - obs_pos
-                if np.linalg.norm(direction) > 0:
-                    direction = direction / np.linalg.norm(direction)
+                # If the agent is inside the obstacle, push it out strongly
+                if distance == 0:
+                    # Find which side is closest
+                    sides_dist = [
+                        half_width - abs(position[0] - obs_pos[0]),  # distance to vertical sides
+                        half_height - abs(position[1] - obs_pos[1])  # distance to horizontal sides
+                    ]
+                    if sides_dist[0] < sides_dist[1]:
+                        # Push horizontally
+                        direction = np.array([1, 0]) if position[0] < obs_pos[0] else np.array([-1, 0])
+                    else:
+                        # Push vertically
+                        direction = np.array([0, 1]) if position[1] < obs_pos[1] else np.array([0, -1])
                     
-                # Apply force
-                force += direction * self.A_wall * np.exp(-distance / self.B_wall)
+                    force += direction * self.A_wall * 5.0  # Stronger force to push out
+                else:
+                    # Direction away from obstacle
+                    dx_sign = 1 if position[0] > obs_pos[0] else -1
+                    dy_sign = 1 if position[1] > obs_pos[1] else -1
+                    
+                    if dx == 0:  # Agent is aligned vertically with obstacle
+                        direction = np.array([0, dy_sign])
+                    elif dy == 0:  # Agent is aligned horizontally with obstacle
+                        direction = np.array([dx_sign, 0])
+                    else:
+                        direction = np.array([dx_sign * dx, dy_sign * dy])
+                        direction = direction / np.linalg.norm(direction)
+                    
+                    # Apply force - stronger for walls
+                    force_multiplier = 2.0 if obstacle.get("is_wall", False) else 1.0
+                    force += direction * self.A_wall * np.exp(-distance / self.B_wall) * force_multiplier
                 
         return force
     
     def _check_exit(self, position):
-        """Check if agent has reached the exit"""
+        """Check if agent has reached any exit"""
         if not self.has_exit:
             return False
             
-        # Check if agent is within exit bounds
-        x_in_exit = self.arena_width - position[0] < 0.5
-        y_in_exit = abs(position[1] - self.exit_position[1]) < self.exit_width / 2
+        for exit_info in self.exits:
+            exit_pos = np.array(exit_info["position"])
+            exit_width = exit_info["width"]
+            
+            # Check different types of exits based on position
+            # Horizontal exits (on right/left walls)
+            if exit_pos[0] == 0 or exit_pos[0] == self.arena_width:
+                x_at_boundary = (exit_pos[0] == 0 and position[0] < 0.5) or \
+                               (exit_pos[0] == self.arena_width and position[0] > self.arena_width - 0.5)
+                y_in_exit = abs(position[1] - exit_pos[1]) < exit_width / 2
+                if x_at_boundary and y_in_exit:
+                    return True
+            
+            # Vertical exits (on top/bottom walls)
+            elif exit_pos[1] == 0 or exit_pos[1] == self.arena_height:
+                y_at_boundary = (exit_pos[1] == 0 and position[1] < 0.5) or \
+                               (exit_pos[1] == self.arena_height and position[1] > self.arena_height - 0.5)
+                x_in_exit = abs(position[0] - exit_pos[0]) < exit_width / 2
+                if y_at_boundary and x_in_exit:
+                    return True
         
-        return x_in_exit and y_in_exit
+        return False
     
     def step(self):
         """Perform one simulation step"""
@@ -157,7 +324,7 @@ class CrowdFlowSimulator:
             desired_velocity = self.desired_directions[i] * self.desired_speed[i]
             forces[i] += (desired_velocity - self.velocities[i]) / self.tau
             
-            # Wall forces
+            # Wall forces (from arena boundaries)
             forces[i] += self._compute_wall_force(self.positions[i])
             
             # Obstacle forces
@@ -179,7 +346,7 @@ class CrowdFlowSimulator:
                         # Repulsive force
                         forces[i] -= self.A * np.exp((2*self.agent_radius - distance) / self.B) * direction
                         
-                        # Add contact force if very close
+                        # Add contact force if very close (for collision)
                         if distance < 2 * self.agent_radius:
                             contact_force = max(0, 2*self.agent_radius - distance) * direction * 20
                             forces[i] -= contact_force
@@ -187,9 +354,9 @@ class CrowdFlowSimulator:
         # Update velocities and positions
         self.velocities = self.velocities + forces * self.dt
         
-        # Limit velocities to a maximum speed
+        # Limit velocities to a maximum speed (based on real human running speeds)
         speeds = np.linalg.norm(self.velocities, axis=1)
-        max_speed = 3.0  # Maximum allowed speed
+        max_speed = 3.0  # Maximum allowed speed (3 m/s is a fast walking / slow running pace)
         for i in range(self.num_agents):
             if speeds[i] > max_speed:
                 self.velocities[i] = self.velocities[i] / speeds[i] * max_speed
@@ -274,23 +441,46 @@ class CrowdFlowSimulator:
                     ax.arrow(pos[0], pos[1], vel[0], vel[1], 
                             head_width=0.3, head_length=0.3, fc='red', ec='red', alpha=0.7)
             
-            # Draw exit if present
-            if self.has_exit:
-                exit_height = self.exit_width
-                exit_y = self.exit_position[1] - exit_height/2
-                exit_rect = Rectangle((self.arena_width-0.2, exit_y), 0.2, exit_height, 
-                                    color='green', alpha=0.7)
-                ax.add_patch(exit_rect)
-                ax.text(self.arena_width-2, self.exit_position[1], 'EXIT', 
-                        ha='right', va='center', color='green', fontsize=12)
+            # Draw exits
+            for exit_info in self.exits:
+                exit_pos = np.array(exit_info["position"])
+                exit_width = exit_info["width"]
+                
+                # Different visualization based on exit position
+                if exit_pos[0] == 0:  # Exit on left wall
+                    exit_rect = Rectangle((-0.2, exit_pos[1] - exit_width/2), 0.2, exit_width, 
+                                       color='green', alpha=0.7)
+                    ax.add_patch(exit_rect)
+                    ax.text(2, exit_pos[1], 'EXIT', ha='left', va='center', color='green', fontsize=12)
+                    
+                elif exit_pos[0] == self.arena_width:  # Exit on right wall
+                    exit_rect = Rectangle((self.arena_width, exit_pos[1] - exit_width/2), 0.2, exit_width, 
+                                       color='green', alpha=0.7)
+                    ax.add_patch(exit_rect)
+                    ax.text(self.arena_width-2, exit_pos[1], 'EXIT', 
+                           ha='right', va='center', color='green', fontsize=12)
+                    
+                elif exit_pos[1] == 0:  # Exit on bottom wall
+                    exit_rect = Rectangle((exit_pos[0] - exit_width/2, -0.2), exit_width, 0.2, 
+                                       color='green', alpha=0.7)
+                    ax.add_patch(exit_rect)
+                    ax.text(exit_pos[0], 2, 'EXIT', ha='center', va='bottom', color='green', fontsize=12)
+                    
+                elif exit_pos[1] == self.arena_height:  # Exit on top wall
+                    exit_rect = Rectangle((exit_pos[0] - exit_width/2, self.arena_height), exit_width, 0.2, 
+                                       color='green', alpha=0.7)
+                    ax.add_patch(exit_rect)
+                    ax.text(exit_pos[0], self.arena_height-2, 'EXIT', 
+                           ha='center', va='top', color='green', fontsize=12)
             
             # Draw obstacles
             for obstacle in self.obstacles:
                 pos = obstacle["position"]
                 width = obstacle["width"]
                 height = obstacle["height"]
+                color = 'black' if obstacle.get("is_wall", False) else 'gray'
                 rect = Rectangle((pos[0]-width/2, pos[1]-height/2), width, height, 
-                                color='gray', alpha=0.7)
+                               color=color, alpha=0.7)
                 ax.add_patch(rect)
             
             # Display stats
@@ -317,8 +507,7 @@ def parse_args():
     parser.add_argument('--arena_height', type=float, default=50, help='Height of arena')
     parser.add_argument('--time_steps', type=int, default=500, help='Maximum number of simulation steps')
     parser.add_argument('--dt', type=float, default=0.1, help='Time step size')
-    parser.add_argument('--no_exit', action='store_false', dest='has_exit', help='Disable exit')
-    parser.add_argument('--obstacles', action='store_true', dest='has_obstacles', help='Add obstacles')
+    parser.add_argument('--custom_layout', type=str, default=None, help='Path to JSON file with custom layout')
     parser.add_argument('--no_viz', action='store_false', dest='visualize', help='Disable visualization')
     return parser.parse_args()
 
@@ -337,14 +526,13 @@ def run_experiment(args=None):
         arena_height=args.arena_height,
         time_steps=args.time_steps,
         dt=args.dt,
-        has_exit=args.has_exit,
-        has_obstacles=args.has_obstacles
+        custom_layout=args.custom_layout
     )
     
     active_counts = simulator.run_simulation(visualize=args.visualize)
     
     # Plot evacuation curve if not visualizing
-    if not args.visualize and args.has_exit:
+    if not args.visualize and simulator.has_exit:
         plt.figure(figsize=(10, 6))
         plt.plot(active_counts)
         plt.xlabel('Time Step')
