@@ -1,40 +1,40 @@
 {
     "evacuation_efficiency": {
-        "initial_agents": 100,
-        "evacuated_agents": 61,
-        "evacuation_percentage": 61.0,
-        "simulation_steps": 364,
-        "avg_evacuation_rate": 0.16758241758241757,
-        "peak_evacuation_rate": 2,
-        "half_evacuation_time": 275,
-        "bottleneck_percentage": 49.175824175824175
+        "initial_agents": 200,
+        "evacuated_agents": 70,
+        "evacuation_percentage": 35.0,
+        "simulation_steps": 161,
+        "avg_evacuation_rate": 0.43478260869565216,
+        "peak_evacuation_rate": 4,
+        "half_evacuation_time": null,
+        "bottleneck_percentage": 18.012422360248447
     },
     "emergent_behaviors": {
         "bottlenecks": {
-            "average": 0.5439560439560439,
-            "frequency": 0.49175824175824173,
-            "peak": 2
+            "average": 0.18012422360248448,
+            "frequency": 0.18012422360248448,
+            "peak": 1
         },
         "lanes": {
-            "average": 4.46978021978022,
+            "average": 5.291925465838509,
             "frequency": 1.0,
             "peak": 7
         },
         "clusters": {
-            "average": 3.379120879120879,
-            "frequency": 0.967032967032967,
-            "peak": 8
+            "average": 8.639751552795031,
+            "frequency": 1.0,
+            "peak": 18
         },
         "interpretation": [
-            "Minor bottlenecks occurred in 49.2% of the simulation time",
-            "Strong lane formation observed with an average of 4.5 lanes",
-            "Significant clustering behavior with an average of 3.4 clusters"
+            "No significant bottlenecks were observed",
+            "Strong lane formation observed with an average of 5.3 lanes",
+            "Significant clustering behavior with an average of 8.6 clusters"
         ]
     },
     "simulation_parameters": {
-        "num_agents": 100,
+        "num_agents": 200,
         "arena_width": 50.0,
         "arena_height": 50.0,
-        "time_steps": 364
+        "time_steps": 161
     }
 }

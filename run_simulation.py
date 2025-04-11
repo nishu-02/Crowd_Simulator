@@ -8,7 +8,7 @@ import argparse
 def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Enhanced Crowd Flow Simulation with Analysis')
-    parser.add_argument('--num_agents', type=int, default=100, help='Number of agents')
+    parser.add_argument('--num_agents', type=int, default=200, help='Number of agents')
     parser.add_argument('--arena_width', type=float, default=50, help='Width of arena')
     parser.add_argument('--arena_height', type=float, default=50, help='Height of arena')
     parser.add_argument('--time_steps', type=int, default=1000, help='Maximum simulation steps')

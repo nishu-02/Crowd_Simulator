@@ -132,8 +132,9 @@ class CrowdSimulationGUI:
         
         # Slider for simulation speed with improved styling
         ax_speed = self.fig.add_axes([0.55, 0.1, 0.35, 0.03])
+        # For even higher speeds:
         self.slider_speed = Slider(
-            ax_speed, 'Speed', 10, 200, valinit=50,
+            ax_speed, 'Speed', 10, 300, valinit=150,  # Increased max to 300 and default to 150
             color='#007bff', initcolor='#00a8ff'
         )
         self.slider_speed.label.set_color('white')
